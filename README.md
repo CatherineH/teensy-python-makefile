@@ -37,3 +37,20 @@ teensies = list_devices()
 for teensy in teensies:
    upload_latest(teensy, latest_hex)
 ```
+
+## Troubleshooting
+
+If you get an error message like:
+
+```
+/bin/sh: tyc: not found
+```
+
+Make sure the directories are in your **PATH** environment variable, without
+ using the tilda (~) shortcut. Python cannot handle these shortcuts. You
+ must set your environment variables as:
+
+```sh
+PATH=$PATH:$HOME"/arduino-builder/"
+PATH=$PATH:$HOME"/ty/build/linux"
+```

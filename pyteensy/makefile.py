@@ -1,5 +1,5 @@
 from optparse import OptionParser
-from os import listdir, environ
+from os import listdir, environ, getcwd
 from os.path import dirname, expanduser, join, getmtime
 from subprocess import call, Popen, PIPE
 from sys import argv, platform
@@ -9,20 +9,24 @@ from shutil import rmtree
 if platform == "win32":
     arduino_folder = "C:\Program Files (x86)\Arduino\\"
     temp_folder = expanduser("~\\AppData\\Local\\Temp\\")
-    arduino_builder_folder = expanduser("~\\go_projects\\arduino-builder")
+    #arduino_builder_folder = expanduser("~\\go_projects\\arduino-builder")
+    run_shell = True
 else:
     if 'ARDUINO_FOLDER' in environ.keys():
         arduino_folder = environ['ARDUINO_FOLDER']
     else:
         arduino_folder = expanduser("~/arduino-1.6.7/")
-    arduino_builder_folder = expanduser("~/go_projects/arduino-builder")
+    temp_folder = "/tmp"
+    #arduino_builder_folder = expanduser("~/go_projects/arduino-builder")
+    run_shell = True
 
-teensyLC_build_vars = ["teensyLC.build.fcpu=48000000",
-                       "teensyLC.build.flags.optimize=-Os",
-                       "teensyLC.build.flags.ldspecs=--specs=nano.specs",
-                       "teensyLC.build.keylayout=US_ENGLISH",
-                       "teensyLC.build.usbtype=USB_SERIAL"]
+teensies = ['teensyLC', 'teensy32']
 
+teensy_build_vars = [".build.fcpu=48000000",
+                     ".build.flags.optimize=-Os",
+                     ".build.flags.ldspecs=--specs=nano.specs",
+                     ".build.keylayout=US_ENGLISH",
+                     ".build.usbtype=USB_SERIAL"]
 
 def find_hexes():
     """
@@ -43,13 +47,17 @@ def find_hexes():
 
 
 def list_teensies():
-    process = Popen(['tyc', 'list'], stdout=PIPE)
+    parts = ['tyc', 'list']
+    if run_shell:
+        parts = " ".join(parts)
+    process = Popen(parts, stdout=PIPE, shell=run_shell)
     out, err = process.communicate()
     out = out.decode("utf-8")
     devices = str(out).split('\r\n')
     parsed_devices = []
     for i in range(0, len(devices)):
         if len(devices[i]) > 0:
+            print(devices[i])
             devices[i] = devices[i].replace("add ", "")
             devices[i] = devices[i].replace("-Teensy Teensy", "")
             devices[i] = devices[i].replace(" LC", "")
@@ -71,13 +79,15 @@ def check_boards():
     lines = fh.readlines()
     orig_num = len(lines)
     fh.close()
-    for line in teensyLC_build_vars:
+    build_lines = [teensy+build_opt for teensy in teensies for build_opt in
+                   teensy_build_vars ]
+    for line in build_lines:
         found_line = False
         for inline in lines:
             if inline.find(line) >= 0:
                 found_line = True
         if not found_line:
-            lines.append(line)
+            lines.append(line+"\n")
     new_num = len(lines)
     if new_num > orig_num:
         fh = open(boards, "w")
@@ -87,9 +97,9 @@ def check_boards():
 
 def compile(project_name="experiment_control"):
     # first, check the boards file for the build variables
-    curr_dir = dirname(__file__)
+    curr_dir = getcwd()
     check_boards()
-    command = [join(arduino_builder_folder, 'arduino-builder'),
+    command = ['arduino-builder',
                '-fqbn', 'teensy:avr:teensyLC',
                '-hardware', format_arduino_folder('hardware'),
                '-tools', format_arduino_folder('hardware/tools'),
@@ -99,8 +109,10 @@ def compile(project_name="experiment_control"):
                '-libraries', format_folder(join(curr_dir), project_name),
                format_folder(join(curr_dir, project_name), 'main.ino')]
     #command = [join(arduino_builder_folder, 'arduino-builder')]
-    #print(' '.join(command))
-    call(command)
+    print(' '.join(command))
+    if run_shell:
+        command = ' '.join(command)
+    call(command, shell=run_shell)
 
 
 def upload_latest(serial_number, hex_filename):
@@ -115,15 +127,16 @@ def compile_upload(project_name="experiment_control",
         while last_hex is not None:
             rmtree(last_hex)
             last_hex = find_hexes()
-    # get the devices, but remove the excluded devices
-    devices = list_teensies()
-    for exclude_device in exclude_list:
-        if exclude_device in devices:
-            devices.remove(exclude_device)
-    if len(devices) == 0:
-        raise IOError("Could not find teensy to program.")
-    if len(devices) > 1:
-        raise IOError("More than one teensy. Aborting.")
+    if upload:
+        # get the devices, but remove the excluded devices
+        devices = list_teensies()
+        for exclude_device in exclude_list:
+            if exclude_device in devices:
+                devices.remove(exclude_device)
+        if len(devices) == 0:
+            raise IOError("Could not find teensy to program.")
+        if len(devices) > 1:
+            raise IOError("More than one teensy. Aborting.")
     compile(project_name=project_name)
     if upload:
         filename = join(find_hexes(), "main.ino.hex")

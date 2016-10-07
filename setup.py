@@ -15,8 +15,8 @@ def main():
         url="https://github.com/CatherineH/teensy-python-makefile",
         author="Catherine Holloway",
         entry_points={'console_scripts': [
-            'pyteensy = src:compile_upload',
-            'pyteensy%s = src:compile_upload' % py_vers_tag,
+            'pyteensy = pyteensy:compile_upload_script',
+            'pyteensy%s = pyteensy:compile_upload_script' % py_vers_tag,
             ]},
         author_email="milankie@gmail.com",
         packages=find_packages(),

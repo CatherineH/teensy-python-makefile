@@ -4,3 +4,5 @@
 build
 dist
 pyteensy.egg-info
+
+*.pyc
