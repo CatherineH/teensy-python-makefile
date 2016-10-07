@@ -1,0 +1,6 @@
+# pycharm generated
+.idea
+
+build
+dist
+pyteensy.egg-info
