@@ -20,13 +20,13 @@ else:
     #arduino_builder_folder = expanduser("~/go_projects/arduino-builder")
     run_shell = True
 
-teensies = ['teensyLC', 'teensy32']
 
 teensy_build_vars = [".build.fcpu=48000000",
                      ".build.flags.optimize=-Os",
                      ".build.flags.ldspecs=--specs=nano.specs",
                      ".build.keylayout=US_ENGLISH",
                      ".build.usbtype=USB_SERIAL"]
+
 
 def find_hexes():
     """
@@ -57,10 +57,13 @@ def list_teensies():
     parsed_devices = []
     for i in range(0, len(devices)):
         if len(devices[i]) > 0:
+            devices[i] = devices[i].split(" ")[1].split("-")[0]
             print(devices[i])
+            '''
             devices[i] = devices[i].replace("add ", "")
             devices[i] = devices[i].replace("-Teensy Teensy", "")
             devices[i] = devices[i].replace(" LC", "")
+            '''
             parsed_devices.append(devices[i])
     return parsed_devices
 
@@ -73,14 +76,13 @@ def format_arduino_folder(path):
     return format_folder(arduino_folder, path)
 
 
-def check_boards():
+def check_boards(device="teensyLC"):
     boards = join(arduino_folder, "hardware/teensy/avr/boards.txt")
     fh = open(boards, "r")
     lines = fh.readlines()
     orig_num = len(lines)
     fh.close()
-    build_lines = [teensy+build_opt for teensy in teensies for build_opt in
-                   teensy_build_vars ]
+    build_lines = [device+build_opt for build_opt in teensy_build_vars]
     for line in build_lines:
         found_line = False
         for inline in lines:
@@ -95,12 +97,12 @@ def check_boards():
         fh.close()
 
 
-def compile(project_name="experiment_control"):
+def compile_teensy(project_name="experiment_control", device="teensyLC"):
     # first, check the boards file for the build variables
     curr_dir = getcwd()
     check_boards()
     command = ['arduino-builder',
-               '-fqbn', 'teensy:avr:teensyLC',
+               '-fqbn', 'teensy:avr:'+device,
                '-hardware', format_arduino_folder('hardware'),
                '-tools', format_arduino_folder('hardware/tools'),
                '-tools', format_arduino_folder('tools-builder'),
@@ -121,7 +123,8 @@ def upload_latest(serial_number, hex_filename):
 
 
 def compile_upload(project_name="experiment_control",
-                   exclude_list=['1743330'], clear=False, upload=True):
+                   exclude_list=['1743330'], clear=False, upload=True,
+                   device="teensyLC"):
     if clear:
         last_hex = find_hexes()
         while last_hex is not None:
@@ -137,7 +140,7 @@ def compile_upload(project_name="experiment_control",
             raise IOError("Could not find teensy to program.")
         if len(devices) > 1:
             raise IOError("More than one teensy. Aborting.")
-    compile(project_name=project_name)
+    compile_teensy(project_name=project_name, device=device)
     if upload:
         filename = join(find_hexes(), "main.ino.hex")
         upload_latest(serial_number=devices[0], hex_filename=filename)
@@ -167,6 +170,10 @@ class CompileOption(OptionParser):
                         help="The foldername of the project. By default, "
                              "the project entrypoint is a file called "
                              "main.ino in the projectname folder.")
+        self.add_option("-d", "--device", action="store", dest="device",
+                        default=None, metavar='DEVICE',
+                        help="The teensy device name, i.e., teensyLC or "
+                             "teensy32.")
         self.add_option("-e", "--exclude", action="store", dest="exclude_list",
                         default="", metavar='SERIAL_NUMBERS',
                         help="The serial numbers of teensies to exclude.")
