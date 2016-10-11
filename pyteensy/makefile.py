@@ -151,7 +151,8 @@ def compile_upload_script():
     (options, args) = parser.parse_args()
     options.exclude_list = options.exclude_list.split(",")
     compile_upload(options.project, exclude_list=options.exclude_list,
-                   clear=options.clear, upload=options.upload)
+                   clear=options.clear, upload=options.upload,
+                   device=options.device)
 
 
 class CompileOption(OptionParser):
@@ -173,7 +174,7 @@ class CompileOption(OptionParser):
         self.add_option("-d", "--device", action="store", dest="device",
                         default=None, metavar='DEVICE',
                         help="The teensy device name, i.e., teensyLC or "
-                             "teensy32.")
+                             "teensy31.")
         self.add_option("-e", "--exclude", action="store", dest="exclude_list",
                         default="", metavar='SERIAL_NUMBERS',
                         help="The serial numbers of teensies to exclude.")
