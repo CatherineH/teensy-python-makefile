@@ -1,6 +1,6 @@
 from optparse import OptionParser
 from os import listdir, environ, getcwd, walk
-from os.path import dirname, expanduser, join, getmtime, basename
+from os.path import dirname, expanduser, join, getmtime, basename, isdir
 from subprocess import call, Popen, PIPE
 from sys import argv, platform
 
@@ -9,11 +9,12 @@ from shutil import rmtree
 from enum import Enum
 
 if platform == "win32":
-    arduino_folder = "C:\Program Files (x86)\Arduino\\"
-    temp_folder = expanduser("~\\AppData\\Local\\Temp\\")
+    if "TEMP" in environ.keys():
+        TEMP_FOLDER = environ["TEMP"]
+    else:
+        TEMP_FOLDER = expanduser("~\\AppData\\Local\\Temp\\")
 else:
-    temp_folder = "/tmp"
-
+    TEMP_FOLDER = "/tmp"
 
 
 class SourceTypes(Enum):
@@ -23,14 +24,16 @@ class SourceTypes(Enum):
 
 
 def format_folder(folder, path):
+    """
+    Escape the backslashes so that it can be used in a system call
+    #TODO: replace this with some path stuff
+    :param str folder: the dirname of the path
+    :param str path: the basename of the path
+    :return str: the formatted path
+    """
     return "\"" + join(folder, path).replace("\\", "\\\\") + "\""
 
-
-def format_arduino_folder(path):
-    return format_folder(arduino_folder, path)
-
-
-teensy_build_vars = [".build.fcpu=48000000",
+TEENSY_BUILD_VARS = [".build.fcpu=48000000",
                      ".build.flags.optimize=-Os",
                      ".build.flags.ldspecs=--specs=nano.specs",
                      ".build.keylayout=US_ENGLISH",
@@ -41,7 +44,6 @@ class TeensyMake(object):
     def __init__(self, options=None):
         if options is not None:
             self.project = options.project
-            self.project_name = options.project
             self.exclude_list = options.exclude_list
             self.clear = options.clear
             self.upload = options.upload
@@ -50,12 +52,31 @@ class TeensyMake(object):
             self._teensy_list = None
             self._micropython_folder = None
             self._arduino_folder = None
+            self._project_directory = None
+
+    @property
+    def project_directory(self):
+        """
+        Get the full path to the project.
+        :return str: the full path
+        """
+        if self._project_directory is not None:
+            return self._project_directory
+        else:
+            curr_dir = getcwd()
+            self._project_directory = join(curr_dir, self.project)
+            return self._project_directory
 
     @property
     def source_type(self):
+        """
+        Identify the type of source in the project directory.
+        :rtype: SourceTypes
+        """
         if self._source_type is not None:
             return self._source_type
-        files = listdir(self.project)
+
+        files = listdir(self.project_directory)
         for file in files:
             # a python file must have either a main.py or a boot.py
             if file.find("main.py") == 0:
@@ -68,31 +89,47 @@ class TeensyMake(object):
                 self._source_type = SourceTypes.arduino
                 return self._source_type
         self._source_type = SourceTypes.unknown
-        return self._source_type
+        if self._source_type == SourceTypes.unknown:
+            raise ValueError("Source type not recognized.")
 
-    def find_hexes(self):
+    def find_hex(self):
         """
-        Get only the most recent arduino compiled hex file.
-        :return: the folder name
-        :rtype: str
+        Get the most recently compiled hex file.
+        :return str: the hex_filename
         """
-        # TODO: skip finding in the temp_folder if source type is python
+        most_recent = None
         if self.source_type == SourceTypes.arduino:
-            most_recent = None
-            for file in listdir(temp_folder):
+            for file in listdir(TEMP_FOLDER):
                 if file.find("arduino") == 0:
-                    _filename = join(temp_folder, file)
+                    _filename = join(TEMP_FOLDER, file, "main.ino.hex")
                     if most_recent is None:
                         most_recent = _filename
                     else:
                         if getmtime(most_recent) < getmtime(_filename):
                             most_recent = _filename
-            return most_recent
         elif self.source_type == SourceTypes.python:
-            build_folder = join(self.arduino_folder, )
+            # at the moment, MicroPython only works with teensy 3.2
+            build_folder = join(self.micropython_folder, "build")
+            if not isdir(build_folder):
+                return None
+            hex_files = [_file for _file in listdir(build_folder) if _file.endswith(
+                ".hex")]
+            for hex_filename in hex_files:
+                hex_filename = join(build_folder, hex_filename)
+                if most_recent is None:
+                    most_recent = hex_filename
+                else:
+                    if getmtime(most_recent) < getmtime(hex_filename):
+                        most_recent = hex_filename
+        return most_recent
 
     @property
     def micropython_folder(self):
+        """
+        Find the micropython folder. Grabbed either from the user's environment
+        variables, or by looking for the folder micropython/tools.
+        :return str: micropython foldername
+        """
         if self._micropython_folder is not None:
             return self._micropython_folder
         if 'MICROPYTHON_FOLDER' in environ.keys():
@@ -102,11 +139,16 @@ class TeensyMake(object):
         for root, dirs, files in walk("/"):
             for name in dirs:
                 if name.find("tools") >= 0 and root.endswith("micropython"):
-                    self._micropython_folder = root
+                    self._micropython_folder = join(root, "teensy")
                     return self._micropython_folder
 
     @property
     def arduino_folder(self):
+        """
+        Find the arduino folder. Grabbed either from the user's environment
+        variables, or by looking for the folder arduino-(ver num)/tools.
+        :return str: arduino foldername
+        """
         if self._arduino_folder is not None:
             return self._arduino_folder
         if 'ARDUINO_FOLDER' in environ.keys():
@@ -120,6 +162,10 @@ class TeensyMake(object):
 
     @property
     def teensy_list(self):
+        """
+        Get the list of teensies currently plugged into the computer.
+        :return list: list of teensy serial numbers
+        """
         if self._teensy_list is None:
             parts = ['tyc', 'list']
             command = " ".join(parts)
@@ -135,51 +181,53 @@ class TeensyMake(object):
         return self._teensy_list
 
     def check_boards(self):
-        boards = join(arduino_folder, "hardware/teensy/avr/boards.txt")
+        """
+        Ensure that the build vars (cpu speed, keyboard, flags, usb type) are present
+        in the arduino-builder boards config file.
+        :return: None
+        """
+        boards = join(self.arduino_folder, "hardware/teensy/avr/boards.txt")
         fh = open(boards, "r")
         lines = fh.readlines()
         orig_num = len(lines)
         fh.close()
-        build_lines = [self.device+build_opt for build_opt in teensy_build_vars]
+        build_lines = [self.device+build_opt for build_opt in TEENSY_BUILD_VARS]
         for line in build_lines:
             found_line = False
             for inline in lines:
                 if inline.find(line) >= 0:
                     found_line = True
             if not found_line:
-                lines.append(line+"\n")
+                lines.append(line + "\n")
         new_num = len(lines)
         if new_num > orig_num:
             fh = open(boards, "w")
             fh.writelines(lines)
             fh.close()
 
-    def source_type(self):
-        curr_dir = getcwd()
-        _directory = join(curr_dir, self.project_name)
-        _files = listdir(_directory)
-        for _file in _files:
-            if _file.endswith("main.py"):
-                return SourceTypes.python
-            elif _file.endswith("main.ino"):
-                return SourceTypes.arduino
-        return SourceTypes.unknown
-
     def compile_teensy(self):
         # first, check the boards file for the build variables
-        curr_dir = getcwd()
-        self.check_boards()
-        parts = ['arduino-builder',
-                   '-fqbn', 'teensy:avr:'+self.device,
-                   '-hardware', format_arduino_folder('hardware'),
-                   '-tools', format_arduino_folder('hardware/tools'),
-                   '-tools', format_arduino_folder('tools-builder'),
-                   '-libraries',
-                   format_arduino_folder('hardware/teensy/avr/libraries'),
-                   '-libraries', format_folder(join(curr_dir), self.project_name),
-                   format_folder(join(curr_dir, self.project_name), 'main.ino')]
+        if self.source_type == SourceTypes.arduino:
+            self.check_boards()
+            parts = ['arduino-builder',
+                       '-fqbn', 'teensy:avr:'+self.device,
+                       '-hardware', format_folder(self.arduino_folder, 'hardware'),
+                       '-tools', format_folder(self.arduino_folder,'hardware/tools'),
+                       '-tools', format_folder(self.arduino_folder,'tools-builder'),
+                       '-libraries',
+                       format_folder(self.arduino_folder, 'hardware/teensy/avr/libraries'),
+                       '-libraries', format_folder(self.project_directory),
+                       format_folder(self.project_directory, 'main.ino')]
+        elif self.source_type == SourceTypes.python:
+            parts = ["cd ", self.micropython_folder, "&&", "ARDUINO="+self.arduino_folder,
+                     "FROZEN_DIR="+self.project_directory,
+                     "make"]
+
         command = ' '.join(parts)
-        call(command, shell=True)
+        try:
+            call(command, shell=True)
+        except Exception as e:
+            print(command+" failed")
 
     def upload_latest(self):
         command = ["tyc", "upload", "--board", self.serial_number, self.hex_filename]
@@ -187,10 +235,10 @@ class TeensyMake(object):
 
     def compile_upload(self):
         if self.clear:
-            last_hex = self.find_hexes()
+            last_hex = self.find_hex()
             while last_hex is not None:
-                rmtree(last_hex)
-                last_hex = self.find_hexes()
+                rmtree(dirname(last_hex))
+                last_hex = self.find_hex()
         if self.upload:
             # get the devices, but remove the excluded devices
             devices = self.teensy_list
@@ -203,7 +251,7 @@ class TeensyMake(object):
                 raise IOError("More than one teensy. Aborting.")
         self.compile_teensy()
         if self.upload:
-            self.hex_filename = join(self.find_hexes(), "main.ino.hex")
+            self.hex_filename = self.find_hex()
             self.serial_number = devices[0]
             self.upload_latest()
 
