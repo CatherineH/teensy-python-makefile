@@ -187,6 +187,7 @@ class TeensyMake(object):
         :return: None
         """
         boards = join(self.arduino_folder, "hardware/teensy/avr/boards.txt")
+
         fh = open(boards, "r")
         lines = fh.readlines()
         orig_num = len(lines)
@@ -216,7 +217,7 @@ class TeensyMake(object):
                        '-tools', format_folder(self.arduino_folder,'tools-builder'),
                        '-libraries',
                        format_folder(self.arduino_folder, 'hardware/teensy/avr/libraries'),
-                       '-libraries', format_folder(self.project_directory),
+                       '-libraries', format_folder(self.project_directory, ""),
                        format_folder(self.project_directory, 'main.ino')]
         elif self.source_type == SourceTypes.python:
             parts = ["cd ", self.micropython_folder, "&&", "ARDUINO="+self.arduino_folder,
