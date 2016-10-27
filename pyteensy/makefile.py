@@ -11,22 +11,26 @@ from enum import Enum
 if platform == "win32":
     arduino_folder = "C:\Program Files (x86)\Arduino\\"
     temp_folder = expanduser("~\\AppData\\Local\\Temp\\")
-    #arduino_builder_folder = expanduser("~\\go_projects\\arduino-builder")
-    run_shell = True
 else:
     if 'ARDUINO_FOLDER' in environ.keys():
         arduino_folder = environ['ARDUINO_FOLDER']
     else:
         arduino_folder = expanduser("~/arduino-1.6.7/")
     temp_folder = "/tmp"
-    #arduino_builder_folder = expanduser("~/go_projects/arduino-builder")
-    run_shell = True
 
 
 class SourceTypes(Enum):
     unknown = 0
     python = 1
     arduino = 2
+
+
+def format_folder(folder, path):
+    return "\"" + join(folder, path).replace("\\", "\\\\") + "\""
+
+
+def format_arduino_folder(path):
+    return format_folder(arduino_folder, path)
 
 
 teensy_build_vars = [".build.fcpu=48000000",
@@ -37,13 +41,15 @@ teensy_build_vars = [".build.fcpu=48000000",
 
 
 class TeensyMake(object):
-    def __init__(self, options):
-        self.project = options.project
-        self.exclude_list = options.exclude_list
-        self.clear = options.clear
-        self.upload = options.upload
-        self.device = options.device
-        self._teensy_list = None
+    def __init__(self, options=None):
+        if options is not None:
+            self.project = options.project
+            self.project_name = options.project
+            self.exclude_list = options.exclude_list
+            self.clear = options.clear
+            self.upload = options.upload
+            self.device = options.device
+            self._teensy_list = None
 
     def find_hexes(self):
         """
@@ -67,9 +73,8 @@ class TeensyMake(object):
     def teensy_list(self):
         if self._teensy_list is None:
             parts = ['tyc', 'list']
-            if run_shell:
-                parts = " ".join(parts)
-            process = Popen(parts, stdout=PIPE, shell=run_shell)
+            command = " ".join(parts)
+            process = Popen(command, stdout=PIPE, shell=True)
             out, err = process.communicate()
             out = out.decode("utf-8")
             devices = str(out).split('\r\n')
@@ -86,22 +91,13 @@ class TeensyMake(object):
                     self._teensy_list.append(devices[i])
         return self._teensy_list
 
-
-    def format_folder(folder, path):
-        return "\"" + join(folder, path).replace("\\", "\\\\") + "\""
-
-
-    def format_arduino_folder(path):
-        return format_folder(arduino_folder, path)
-
-
-    def check_boards(device="teensyLC"):
+    def check_boards(self):
         boards = join(arduino_folder, "hardware/teensy/avr/boards.txt")
         fh = open(boards, "r")
         lines = fh.readlines()
         orig_num = len(lines)
         fh.close()
-        build_lines = [device+build_opt for build_opt in teensy_build_vars]
+        build_lines = [self.device+build_opt for build_opt in teensy_build_vars]
         for line in build_lines:
             found_line = False
             for inline in lines:
@@ -115,10 +111,9 @@ class TeensyMake(object):
             fh.writelines(lines)
             fh.close()
 
-
-    def source_type(project_name="experiment_control"):
+    def source_type(self):
         curr_dir = getcwd()
-        _directory = join(curr_dir, project_name)
+        _directory = join(curr_dir, self.project_name)
         _files = listdir(_directory)
         for _file in _files:
             if _file.endswith("main.py"):
@@ -127,64 +122,56 @@ class TeensyMake(object):
                 return SourceTypes.arduino
         return SourceTypes.unknown
 
-
-    def compile_teensy(project_name="experiment_control", device="teensyLC"):
+    def compile_teensy(self):
         # first, check the boards file for the build variables
         curr_dir = getcwd()
-        check_boards()
-        command = ['arduino-builder',
-                   '-fqbn', 'teensy:avr:'+device,
+        self.check_boards()
+        parts = ['arduino-builder',
+                   '-fqbn', 'teensy:avr:'+self.device,
                    '-hardware', format_arduino_folder('hardware'),
                    '-tools', format_arduino_folder('hardware/tools'),
                    '-tools', format_arduino_folder('tools-builder'),
                    '-libraries',
                    format_arduino_folder('hardware/teensy/avr/libraries'),
-                   '-libraries', format_folder(join(curr_dir), project_name),
-                   format_folder(join(curr_dir, project_name), 'main.ino')]
+                   '-libraries', format_folder(join(curr_dir), self.project_name),
+                   format_folder(join(curr_dir, self.project_name), 'main.ino')]
         #command = [join(arduino_builder_folder, 'arduino-builder')]
-        print(' '.join(command))
-        if run_shell:
-            command = ' '.join(command)
-        call(command, shell=run_shell)
+        command = ' '.join(parts)
+        call(command, shell=True)
 
-
-    def upload_latest(serial_number, hex_filename):
-        command = ["tyc", "upload", "--board", serial_number, hex_filename]
+    def upload_latest(self):
+        command = ["tyc", "upload", "--board", self.serial_number, self.hex_filename]
         call(command)
 
-
-    def compile_upload(project_name="experiment_control",
-                       exclude_list=['1743330'], clear=False, upload=True,
-                       device="teensyLC"):
-        if clear:
-            last_hex = find_hexes()
+    def compile_upload(self):
+        if self.clear:
+            last_hex = self.find_hexes()
             while last_hex is not None:
                 rmtree(last_hex)
-                last_hex = find_hexes()
-        if upload:
+                last_hex = self.find_hexes()
+        if self.upload:
             # get the devices, but remove the excluded devices
-            devices = list_teensies()
-            for exclude_device in exclude_list:
+            devices = self.teensy_list
+            for exclude_device in self.exclude_list:
                 if exclude_device in devices:
                     devices.remove(exclude_device)
             if len(devices) == 0:
                 raise IOError("Could not find teensy to program.")
             if len(devices) > 1:
                 raise IOError("More than one teensy. Aborting.")
-        compile_teensy(project_name=project_name, device=device)
-        if upload:
-            filename = join(find_hexes(), "main.ino.hex")
-            upload_latest(serial_number=devices[0], hex_filename=filename)
+        self.compile_teensy()
+        if self.upload:
+            self.hex_filename = join(self.find_hexes(), "main.ino.hex")
+            self.serial_number = devices[0]
+            self.upload_latest()
 
 
 def compile_upload_script():
     parser = CompileOption()
     (options, args) = parser.parse_args()
     options.exclude_list = options.exclude_list.split(",")
-    _make =
-    compile_upload(options.project, exclude_list=options.exclude_list,
-                   clear=options.clear, upload=options.upload,
-                   device=options.device)
+    _make = TeensyMake(options)
+    _make.compile_upload()
 
 
 class CompileOption(OptionParser):
@@ -213,4 +200,5 @@ class CompileOption(OptionParser):
 
 
 if __name__ == "__main__":
-    compile_upload()
+    _make = TeensyMake()
+    _make.compile_upload()
