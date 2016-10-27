@@ -44,10 +44,14 @@ class TeensyMake(object):
     def __init__(self, options=None):
         if options is not None:
             self.project = options.project
+            if self.project is None:
+                raise ValueError("Please specify a project.")
             self.exclude_list = options.exclude_list
             self.clear = options.clear
             self.upload = options.upload
             self.device = options.device
+            if self.device is None:
+                self.device = "teensyLC"
             self._source_type = None
             self._teensy_list = None
             self._micropython_folder = None
