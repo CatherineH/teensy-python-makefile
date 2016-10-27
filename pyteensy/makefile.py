@@ -1,6 +1,6 @@
 from optparse import OptionParser
-from os import listdir, environ, getcwd
-from os.path import dirname, expanduser, join, getmtime
+from os import listdir, environ, getcwd, walk
+from os.path import dirname, expanduser, join, getmtime, basename
 from subprocess import call, Popen, PIPE
 from sys import argv, platform
 
@@ -12,11 +12,8 @@ if platform == "win32":
     arduino_folder = "C:\Program Files (x86)\Arduino\\"
     temp_folder = expanduser("~\\AppData\\Local\\Temp\\")
 else:
-    if 'ARDUINO_FOLDER' in environ.keys():
-        arduino_folder = environ['ARDUINO_FOLDER']
-    else:
-        arduino_folder = expanduser("~/arduino-1.6.7/")
     temp_folder = "/tmp"
+
 
 
 class SourceTypes(Enum):
@@ -49,7 +46,29 @@ class TeensyMake(object):
             self.clear = options.clear
             self.upload = options.upload
             self.device = options.device
+            self._source_type = None
             self._teensy_list = None
+            self._micropython_folder = None
+            self._arduino_folder = None
+
+    @property
+    def source_type(self):
+        if self._source_type is not None:
+            return self._source_type
+        files = listdir(self.project)
+        for file in files:
+            # a python file must have either a main.py or a boot.py
+            if file.find("main.py") == 0:
+                self._source_type = SourceTypes.python
+                return self._source_type
+            if file.find("boot.py") == 0:
+                self._source_type = SourceTypes.python
+                return self._source_type
+            if file.find("main.ino") == 0:
+                self._source_type = SourceTypes.arduino
+                return self._source_type
+        self._source_type = SourceTypes.unknown
+        return self._source_type
 
     def find_hexes(self):
         """
@@ -58,16 +77,46 @@ class TeensyMake(object):
         :rtype: str
         """
         # TODO: skip finding in the temp_folder if source type is python
-        most_recent = None
-        for file in listdir(temp_folder):
-            if file.find("arduino") == 0:
-                _filename = join(temp_folder, file)
-                if most_recent is None:
-                    most_recent = _filename
-                else:
-                    if getmtime(most_recent) < getmtime(_filename):
+        if self.source_type == SourceTypes.arduino:
+            most_recent = None
+            for file in listdir(temp_folder):
+                if file.find("arduino") == 0:
+                    _filename = join(temp_folder, file)
+                    if most_recent is None:
                         most_recent = _filename
-        return most_recent
+                    else:
+                        if getmtime(most_recent) < getmtime(_filename):
+                            most_recent = _filename
+            return most_recent
+        elif self.source_type == SourceTypes.python:
+            build_folder = join(self.arduino_folder, )
+
+    @property
+    def micropython_folder(self):
+        if self._micropython_folder is not None:
+            return self._micropython_folder
+        if 'MICROPYTHON_FOLDER' in environ.keys():
+            self._micropython_folder = environ['MICROPYTHON_FOLDER']
+            return self._micropython_folder
+        # if all else fails, search the computer
+        for root, dirs, files in walk("/"):
+            for name in dirs:
+                if name.find("tools") >= 0 and root.endswith("micropython"):
+                    self._micropython_folder = root
+                    return self._micropython_folder
+
+    @property
+    def arduino_folder(self):
+        if self._arduino_folder is not None:
+            return self._arduino_folder
+        if 'ARDUINO_FOLDER' in environ.keys():
+            self._arduino_folder = environ['ARDUINO_FOLDER']
+            return self._arduino_folder
+        for root, dirs, files in walk("/"):
+            for name in dirs:
+                if name.find("tools") >= 0 and basename(root).startswith("arduino-"):
+                    self._arduino_folder = root
+                    return self._arduino_folder
 
     @property
     def teensy_list(self):
@@ -82,12 +131,6 @@ class TeensyMake(object):
             for i in range(0, len(devices)):
                 if len(devices[i]) > 0:
                     devices[i] = devices[i].split(" ")[1].split("-")[0]
-                    print(devices[i])
-                    '''
-                    devices[i] = devices[i].replace("add ", "")
-                    devices[i] = devices[i].replace("-Teensy Teensy", "")
-                    devices[i] = devices[i].replace(" LC", "")
-                    '''
                     self._teensy_list.append(devices[i])
         return self._teensy_list
 
@@ -135,7 +178,6 @@ class TeensyMake(object):
                    format_arduino_folder('hardware/teensy/avr/libraries'),
                    '-libraries', format_folder(join(curr_dir), self.project_name),
                    format_folder(join(curr_dir, self.project_name), 'main.ino')]
-        #command = [join(arduino_builder_folder, 'arduino-builder')]
         command = ' '.join(parts)
         call(command, shell=True)
 
