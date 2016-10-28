@@ -105,12 +105,14 @@ class TeensyMake(object):
         if self.source_type == SourceTypes.arduino:
             for file in listdir(TEMP_FOLDER):
                 if file.find("arduino") == 0:
-                    _filename = join(TEMP_FOLDER, file, "main.ino.hex")
-                    if most_recent is None:
-                        most_recent = _filename
-                    else:
-                        if getmtime(most_recent) < getmtime(_filename):
-                            most_recent = _filename
+                    for _arduino_sketch_file in listdir(join(TEMP_FOLDER, file)):
+                        _filename = join(TEMP_FOLDER, file, _arduino_sketch_file)
+                        if _filename.endswith(".hex"):
+                            if most_recent is None:
+                                most_recent = _filename
+                            else:
+                                if getmtime(most_recent) < getmtime(_filename):
+                                    most_recent = _filename
         elif self.source_type == SourceTypes.python:
             # at the moment, MicroPython only works with teensy 3.2
             build_folder = join(self.micropython_folder, "build")
@@ -160,9 +162,12 @@ class TeensyMake(object):
             return self._arduino_folder
         for root, dirs, files in walk("/"):
             for name in dirs:
-                if name.find("tools") >= 0 and basename(root).startswith("arduino-"):
+                if name.find("tools") >= 0 \
+                        and (basename(root).startswith("arduino-")
+                             or basename(root).startswith("Arduino")):
                     self._arduino_folder = root
                     return self._arduino_folder
+        raise ValueError("Could not identify arduino folder!")
 
     @property
     def teensy_list(self):
