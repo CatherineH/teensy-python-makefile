@@ -52,6 +52,8 @@ class TeensyMake(object):
             self.device = options.device
             if self.device is None:
                 self.device = "teensyLC"
+            if self.device is "teensy32":
+                self.device = "teensy31"
             self._source_type = None
             self._teensy_list = None
             self._micropython_folder = None
