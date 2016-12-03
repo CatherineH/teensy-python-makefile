@@ -6,7 +6,7 @@ My scripts for compiling and uploading to teensies. Your mileage may vary.
 This makefile requires the following programs and binaries to be installed on your system for operation:
 
 For arduino code compilation:
-- [Arduino Software IDE](https://www.arduino.cc/en/Main/Software)
+- [Arduino Software IDE](https://www.arduino.cc/en/Main/OldSoftwareReleases#previous) (make sure to get <= 1.6.12!) 
 - [Teensyduino beta](https://forum.pjrc.com/threads/38599-Teensyduino-1-31-Beta-2-Available)
 
 For C/C++ code and MicroPython:
