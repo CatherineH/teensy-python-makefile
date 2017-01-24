@@ -31,7 +31,7 @@ sudo python setup.py install
 There are two ways to use this library either as a script:
 
 ```
-pyteensy --upload my_project
+pyteensy --upload -p my_project -d teensy31
 ```
 
 or use the utilities from within python:
@@ -62,3 +62,12 @@ Make sure the directories are in your **PATH** environment variable, without
 PATH=$PATH:$HOME"/arduino-builder/"
 PATH=$PATH:$HOME"/ty/build/linux"
 ```
+
+If you get an error message like:
+
+```
+Warning: Board teensy:avr:teensy32 doesn't define a 'build.board' preference. Auto-set to: AVR_TEENSY32
+fork/exec ~/installed/arduino-1.6.12/hardware/teensy/../tools/: permission denied
+```
+
+You specified a device that doesn't exist. For example, you used **-d teensy32** for the teensy 3.2 when you should have used **-d teensy31**. 
